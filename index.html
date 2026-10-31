@@ -106,7 +106,7 @@ const shortDate = iso => new Intl.DateTimeFormat('hu-HU',{month:'short',day:'num
 function el(name, attrs={}, text=''){const n=document.createElementNS(NS,name);for(const[k,v]of Object.entries(attrs))n.setAttribute(k,v);if(text)n.textContent=text;return n}
 function render(payload){
   const data=payload.values||[]; if(!data.length) throw new Error('Nincsenek megjeleníthető adatok.');
-  const latest=data[data.length-1]; document.getElementById('latestValue').textContent=(latest.value>0?'+':'')+latest.value.toFixed(1)+' °C'; document.getElementById('latestDate').textContent='Hét középdátuma: '+huDate(latest.date);
+  const latest=data[data.length-1]; document.getElementById('latestValue').textContent=(latest.value>0?'+':'')+latest.value.toFixed(1)+' °C'; document.getElementById('latestDate').textContent=huDate(latest.date);
   document.getElementById('sourceLink').href=payload.source_url||document.getElementById('sourceLink').href;
   document.getElementById('dataBody').innerHTML=data.slice().reverse().map(d=>`<tr><td>${huDate(d.date)}</td><td>${d.value>0?'+':''}${d.value.toFixed(1)}</td></tr>`).join('');
   const svg=document.getElementById('chart'); while(svg.lastChild && svg.lastChild.tagName!=='desc') svg.removeChild(svg.lastChild);
