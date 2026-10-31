@@ -67,7 +67,7 @@
   </header>
 
   <section class="card" aria-label="Niño 3.4 heti grafikon">
-    <div id="chartWrap"><svg id="chart" class="chart" viewBox="0 0 1120 540" role="img" aria-labelledby="chartTitle chartDesc"><title id="chartTitle">Az El Niño alakulása a Niño 3.4 térségben</title><desc id="chartDesc">A Niño 3.4 térség heti tengerfelszín-hőmérsékleti eltérése 2026 januárjától.</desc></svg><div id="tooltip" class="tooltip"></div></div>
+    <div id="chartWrap"><svg id="chart" class="chart" viewBox="0 0 1120 540" role="img" aria-labelledby="chartDesc"><desc id="chartDesc">A Niño 3.4 térség heti tengerfelszín-hőmérsékleti eltérése 2026 januárjától.</desc></svg><div id="tooltip" class="tooltip"></div></div>
     <p class="source" id="sourceLine">Forrás: NOAA/CPC heti adatsor. Niño 3.4 térség: 5°É–5°D, 170°Ny–120°Ny.</p>
   </section>
 
@@ -108,8 +108,8 @@ function render(payload){
   const latest=data[data.length-1]; document.getElementById('latestValue').textContent=(latest.value>0?'+':'')+latest.value.toFixed(1)+' °C'; document.getElementById('latestDate').textContent='Hét középdátuma: '+huDate(latest.date);
   document.getElementById('sourceLink').href=payload.source_url||document.getElementById('sourceLink').href;
   document.getElementById('dataBody').innerHTML=data.slice().reverse().map(d=>`<tr><td>${huDate(d.date)}</td><td>${d.value>0?'+':''}${d.value.toFixed(1)}</td></tr>`).join('');
-  const svg=document.getElementById('chart'); while(svg.lastChild && !['title','desc'].includes(svg.lastChild.tagName)) svg.removeChild(svg.lastChild);
-  [...svg.children].forEach(c=>{if(!['title','desc'].includes(c.tagName))c.remove()});
+  const svg=document.getElementById('chart'); while(svg.lastChild && svg.lastChild.tagName!=='desc') svg.removeChild(svg.lastChild);
+  [...svg.children].forEach(c=>{if(c.tagName!=='desc')c.remove()});
   const W=1120,H=540,m={l:82,r:28,t:25,b:75},pw=W-m.l-m.r,ph=H-m.t-m.b;
   let min=Math.min(-1.5,...data.map(d=>d.value)); let max=Math.max(3,...data.map(d=>d.value)); min=Math.floor((min-.15)*2)/2; max=Math.ceil((max+.15)*2)/2;
   const x=i=>m.l+(data.length===1?pw/2:i*pw/(data.length-1)); const y=v=>m.t+(max-v)*ph/(max-min);
@@ -120,7 +120,15 @@ function render(payload){
   const label=el('text',{x:20,y:m.t+ph/2,'text-anchor':'middle',class:'ylabel',transform:`rotate(-90 20 ${m.t+ph/2})`},'Eltérés a szokásos hőmérséklettől (°C)');svg.appendChild(label);
   const path=data.map((d,i)=>(i?'L':'M')+x(i).toFixed(1)+','+y(d.value).toFixed(1)).join(' ');svg.appendChild(el('path',{d:path,class:'series'}));
   const tip=document.getElementById('tooltip'); const wrap=document.getElementById('chartWrap');
-  data.forEach((d,i)=>{const c=el('circle',{cx:x(i),cy:y(d.value),r:5,class:'point',tabindex:'0','aria-label':`${huDate(d.date)}: ${d.value} Celsius-fok`});const show=e=>{tip.textContent=`${huDate(d.date)}: ${d.value>0?'+':''}${d.value.toFixed(1).replace('.',',')} °C`;tip.style.display='block';const rect=svg.getBoundingClientRect(),wr=wrap.getBoundingClientRect();tip.style.left=((x(i)/W)*rect.width+rect.left-wr.left)+'px';tip.style.top=((y(d.value)/H)*rect.height+rect.top-wr.top)+'px'};c.addEventListener('mouseenter',show);c.addEventListener('focus',show);c.addEventListener('mouseleave',()=>tip.style.display='none');c.addEventListener('blur',()=>tip.style.display='none');svg.appendChild(c)});
+  data.forEach((d,i)=>{const c=el('circle',{cx:x(i),cy:y(d.value),r:5,class:'point',tabindex:'0','aria-label':`${huDate(d.date)}: ${d.value} Celsius-fok`});const show=e=>{tip.textContent=`${huDate(d.date)}: ${d.value>0?'+':''}${d.value.toFixed(1).replace('.',',')} °C`;tip.style.display='block';const rect=svg.getBoundingClientRect(),wr=wrap.getBoundingClientRect();
+    const pointX=(x(i)/W)*rect.width+rect.left-wr.left;
+    const pointY=(y(d.value)/H)*rect.height+rect.top-wr.top;
+    const tipWidth=tip.offsetWidth;
+    const half=tipWidth/2;
+    const padding=8;
+    const clampedX=Math.max(half+padding,Math.min(pointX,wr.width-half-padding));
+    tip.style.left=clampedX+'px';
+    tip.style.top=pointY+'px'};c.addEventListener('mouseenter',show);c.addEventListener('focus',show);c.addEventListener('mouseleave',()=>tip.style.display='none');c.addEventListener('blur',()=>tip.style.display='none');svg.appendChild(c)});
 }
 fetch('data.json',{cache:'no-store'}).then(r=>{if(!r.ok)throw new Error('A data.json nem tölthető be.');return r.json()}).then(render).catch(err=>{document.getElementById('chartWrap').innerHTML=`<div class="error"><strong>Az adatok nem tölthetők be.</strong><br>${err.message}<br>Ha a fájlt közvetlenül a számítógépről nyitottad meg, indítsd webkiszolgálóról vagy GitHub Pagesről.</div>`;document.getElementById('latestDate').textContent='Betöltési hiba';console.error(err)});
 </script>
