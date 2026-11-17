@@ -5,8 +5,10 @@ Uses only the Python standard library.
 from __future__ import annotations
 import json
 import re
+import time
 from datetime import datetime
 from pathlib import Path
+from urllib.error import URLError
 from urllib.request import Request, urlopen
 
 SOURCE_URL = "https://www.cpc.ncep.noaa.gov/data/indices/rel_wksst9120.txt"
@@ -18,8 +20,17 @@ ROW_RE = re.compile(
 
 def fetch_text() -> str:
     req = Request(SOURCE_URL, headers={"User-Agent": "Niño34-school-monitor/1.0"})
-    with urlopen(req, timeout=30) as r:
-        return r.read().decode("utf-8", errors="replace")
+    for attempt in range(1, 4):
+        try:
+            with urlopen(req, timeout=30) as r:
+                return r.read().decode("utf-8", errors="replace")
+        except (URLError, TimeoutError, ConnectionError) as exc:
+            if attempt == 3:
+                raise RuntimeError("NOAA download failed after 3 attempts; existing data.json was not changed") from exc
+            delay = 5 * attempt
+            print(f"NOAA download attempt {attempt}/3 failed: {exc}. Retrying in {delay}s...", flush=True)
+            time.sleep(delay)
+    raise AssertionError("Unreachable")
 
 def parse(text: str):
     values = []
