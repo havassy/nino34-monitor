@@ -8,20 +8,22 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
-  pages: write
-  id-token: write
+  contents: read
 
 concurrency:
   group: pages
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
-  update-and-deploy:
+  update-and-build:
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      actions: read
+    outputs:
+      deploy: ${{ steps.publish.outputs.deploy }}
+      artifact_name: ${{ steps.publish.outputs.artifact_name }}
     steps:
       - name: Repository letöltése
         uses: actions/checkout@v4
@@ -35,25 +37,104 @@ jobs:
         run: python update_data.py
 
       - name: Új adat mentése a repositoryba
+        id: update
         run: |
           if git diff --quiet -- data.json; then
             echo "Nincs új NOAA-adat."
+            echo "changed=false" >> "$GITHUB_OUTPUT"
           else
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
             git add data.json
             git commit -m "NOAA Niño 3.4 adatok frissítése"
             git push
+            echo "changed=true" >> "$GITHUB_OUTPUT"
           fi
+
+      - name: Közzététel szükségességének ellenőrzése
+        id: publish
+        uses: actions/github-script@v8
+        env:
+          DATA_CHANGED: ${{ steps.update.outputs.changed }}
+        with:
+          retries: 3
+          script: |
+            let deploy = true;
+            // Only skip scheduled checks when this revision already succeeded.
+            // A failed publication must be retried even if NOAA has no new data.
+            if (context.eventName === 'schedule' && process.env.DATA_CHANGED === 'false') {
+              try {
+                const { data } = await github.rest.actions.listWorkflowRuns({
+                  ...context.repo,
+                  workflow_id: 'update-noaa.yml',
+                  branch: context.ref.replace('refs/heads/', ''),
+                  status: 'success',
+                  per_page: 1
+                });
+                deploy = data.workflow_runs[0]?.head_sha !== context.sha;
+              } catch (error) {
+                core.warning(`Korábbi közzététel nem ellenőrizhető; közzététel indul: ${error.message}`);
+              }
+            }
+            core.setOutput('deploy', String(deploy));
+            core.setOutput('artifact_name', `github-pages-${context.runId}-${process.env.GITHUB_RUN_ATTEMPT}`);
+            core.info(deploy ? 'Közzététel szükséges.' : 'Az adatok változatlanok, ez a verzió már sikeresen megjelent.');
+
+      - name: Weboldal csomagolása
+        if: steps.publish.outputs.deploy == 'true'
+        uses: actions/upload-pages-artifact@v4
+        with:
+          name: ${{ steps.publish.outputs.artifact_name }}
+          path: '.'
+          retention-days: 7
+
+  deploy:
+    needs: update-and-build
+    if: needs.update-and-build.outputs.deploy == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      actions: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Várakozás a feltöltött csomag elérhetőségére
+        uses: actions/github-script@v8
+        env:
+          ARTIFACT_NAME: ${{ needs.update-and-build.outputs.artifact_name }}
+        with:
+          retries: 3
+          script: |
+            const name = process.env.ARTIFACT_NAME;
+            for (let attempt = 1; attempt <= 12; attempt++) {
+              const artifacts = await github.paginate(github.rest.actions.listWorkflowRunArtifacts, {
+                ...context.repo,
+                run_id: context.runId,
+                per_page: 100
+              });
+              const matches = artifacts.filter(artifact => artifact.name === name && !artifact.expired);
+              if (matches.length === 1) {
+                core.info(`A közzéteendő csomag elérhető: ${name}`);
+                return;
+              }
+              if (matches.length > 1) {
+                throw new Error(`Több azonos nevű csomag található: ${name}`);
+              }
+              if (attempt < 12) {
+                core.info(`A csomag még nem látható (${attempt}/12); új ellenőrzés 10 másodperc múlva.`);
+                await new Promise(resolve => setTimeout(resolve, 10000));
+              }
+            }
+            throw new Error(`A feltöltött csomag nem vált elérhetővé: ${name}`);
 
       - name: GitHub Pages beállítása
         uses: actions/configure-pages@v5
 
-      - name: Weboldal csomagolása
-        uses: actions/upload-pages-artifact@v4
-        with:
-          path: '.'
-
       - name: Közzététel GitHub Pages-re
         id: deployment
         uses: actions/deploy-pages@v4
+        with:
+          artifact_name: ${{ needs.update-and-build.outputs.artifact_name }}
